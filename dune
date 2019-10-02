@@ -1,0 +1,7 @@
+(executable
+  (name grapher)
+  (libraries lambdasoup cohttp lwt cohttp-lwt-unix str))
+
+(env
+  (dev
+    (flags (:standard -warn-error -A))))
