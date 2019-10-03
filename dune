@@ -1,6 +1,7 @@
 (executable
   (name grapher)
-  (libraries lambdasoup cohttp lwt cohttp-lwt-unix str))
+  (libraries lambdasoup cohttp lwt cohttp-lwt-unix str)
+  (preprocess (pps ppx_sexp_conv)))
 
 (env
   (dev
