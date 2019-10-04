@@ -29,27 +29,46 @@ struct
   let empty_db () = {references = []; unvisited_nodes = []}
 end
 
-module Writer_SEXP (M : Domain) =
+module Writer_SEXP (M : Domain) = (* Stateful module, saves the currently opened file *)
 struct
-  let write_file (db : M.db) =
-    let oc = open_out "scp.sexp" in
+  type t = out_channel
+
+  let oc = ref None (* Currently opened file, modify accordingly *)
+
+  let get_oc () =
+    match !oc with
+    | Some x -> x
+    | None ->
+      let ret = open_out "scp.sexp" in
+      oc := Some ret;
+      ret
+
+  let write_entry (db : M.db) =
+    let oc = get_oc () in
     M.sexp_of_db db
     |> Sexp.to_string
-    |> write_channel oc;
-    close_out oc
+    |> write_channel oc
+
+  let close_file () =
+    match !oc with
+    | None -> ()
+    | Some x -> close_out x
+
+  let write_file (db : M.db) =
+    write_entry db;
+    close_file ()
 
   let read_file () : M.db =
     try
       read_file "scp.sexp"
       |> Sexp.of_string
       |> M.db_of_sexp
-    with Sexplib.Conv.Of_sexp_error (_,_) -> M.empty_db ()
+    with Sexplib.Conv.Of_sexp_error (_,_) | Sys_error _ -> M.empty_db ()
 end
 
 module Scraper (M : Domain) =
 struct
   let get_body id =
-    Unix.sleepf 0.1;
     Client.get @@ M.id_to_url id
     >>= fun (resp, body) ->
     let code = resp |> Response.status |> Code.code_of_status in
@@ -74,7 +93,7 @@ struct
     if depth < 1 then {M.references; unvisited_nodes = id::unvisited_nodes}
     else
       begin
-        print_endline @@ "Checking: " ^ M.id_to_string id;
+        print_endline @@ "Checking: " ^ M.id_to_string id ^ " Remaining: " ^ string_of_int @@ List.length unvisited_nodes;
         let new_references = get_references id M.regex in
         let database = (id, new_references) :: references in
         let new_scps = new_references |> List.filter (fun x -> not @@ List.mem_assoc x database) in
@@ -103,20 +122,18 @@ struct
     let oc = init_file () in
     List.iter (write_to_file oc) references;
     close_file oc
-
-  let read_db_file () =
-    let file = open_in "graph.db" in
-    let input_line' () = input_line file in
-    ()
-    (*TODO use preprocessor? Perhaps there is a different feature for compile-time constants*)
 end
 
 let _ =
+  Printexc.record_backtrace true;
   let module SCP_Scraper = Scraper (SCP) in
   let open SCP_Scraper in
   let module Writer = (Writer_SEXP(SCP)) in
-  let ({SCP.unvisited_nodes; _} as database) = Writer.read_file () in
-  let scp = if database = SCP.empty_db () then SCP.string_to_id "002" else List.hd unvisited_nodes in
-  let database = traverse 5 database scp in
+  let {SCP.unvisited_nodes; SCP.references} = Writer.read_file () in
+  let scp,unvisited_nodes = match unvisited_nodes with
+    | [] -> SCP.string_to_id "002", []
+    | x::xs -> x,xs
+  in
+  let database = traverse 1 {references; unvisited_nodes} scp in
   Writer.write_file database;
   write_dot_file database

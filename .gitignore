@@ -1,3 +1,5 @@
 .merlin
 _build/**
 graph.dot
+*.png
+*.sexp
